@@ -26,10 +26,24 @@ final class WakeManager: ObservableObject {
     private var caffeinateTask: Process?
     private var countdownTimer: Timer?
     private var currentDurationMinutes: Int? // for restart on setting change
+    private var endDate: Date? // absolute wall-clock time the timer expires
 
     init() {
         self.allowDisplaySleep = UserDefaults.standard.bool(forKey: "allowDisplaySleep")
         self.startAtLogin = SMAppService.mainApp.status == .enabled
+
+        // Refresh immediately when the Mac wakes from sleep, so the remaining time
+        // reflects real elapsed wall-clock time rather than paused-timer time.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(handleWake),
+            name: NSWorkspace.didWakeNotification,
+            object: nil
+        )
+    }
+
+    @objc private func handleWake() {
+        refreshRemaining()
     }
 
     private func updateLoginItem(enabled: Bool) {
@@ -93,9 +107,11 @@ final class WakeManager: ObservableObject {
             isActive = true
 
             if let secs = durationSeconds {
+                endDate = Date().addingTimeInterval(TimeInterval(secs))
                 remainingSeconds = secs
                 startCountdown()
             } else {
+                endDate = nil
                 remainingSeconds = nil
             }
             updateTimeString()
@@ -117,6 +133,7 @@ final class WakeManager: ObservableObject {
         isActive = false
         remainingSeconds = nil
         currentDurationMinutes = nil
+        endDate = nil
         updateTimeString()
     }
 
@@ -129,22 +146,27 @@ final class WakeManager: ObservableObject {
         countdownTimer?.invalidate()
 
         let timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            if let rem = self.remainingSeconds {
-                let next = rem - 1
-                if next <= 0 {
-                    self.deactivate()
-                } else {
-                    self.remainingSeconds = next
-                    self.updateTimeString()
-                }
-            }
+            self?.refreshRemaining()
         }
 
         // Ensure the timer fires even during UI tracking (menu open, scrolling, etc.)
         RunLoop.main.add(timer, forMode: .common)
 
         countdownTimer = timer
+    }
+
+    /// Recompute remaining time from the absolute end date. Robust to the timer
+    /// being paused/throttled while the display or system is asleep — the value is
+    /// always derived from wall-clock, never decremented tick-by-tick.
+    private func refreshRemaining() {
+        guard isActive, let endDate else { return }
+        let remaining = Int(endDate.timeIntervalSinceNow.rounded())
+        if remaining <= 0 {
+            deactivate()
+        } else {
+            remainingSeconds = remaining
+            updateTimeString()
+        }
     }
 
     private func updateTimeString() {
@@ -182,6 +204,7 @@ final class WakeManager: ObservableObject {
     }
 
     deinit {
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
         deactivate()
     }
 }
