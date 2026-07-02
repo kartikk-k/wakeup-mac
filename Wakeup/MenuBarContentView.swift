@@ -6,6 +6,7 @@ struct MenuBarContentView: View {
 
     private let durationOptions: [(title: String, minutes: Int?)] = [
         ("Indefinitely", nil),
+        ("1 Minute", 1),
         ("5 Minutes", 5),
         ("10 Minutes", 10),
         ("15 Minutes", 15),
@@ -46,8 +47,10 @@ struct MenuBarContentView: View {
         
         Toggle("Start at login", isOn: $manager.startAtLogin)
 
-        Toggle("Allow display to sleep", isOn: $manager.allowDisplaySleep)
-        Text("Keeps the Mac awake but lets the screen turn off")
+        Toggle("Keep screen on", isOn: $manager.keepScreenOn)
+        Text(manager.keepScreenOn
+             ? "Display stays on for the whole timer"
+             : "Mac stays awake, but the screen may turn off")
             .font(.caption)
             .foregroundStyle(.secondary)
 

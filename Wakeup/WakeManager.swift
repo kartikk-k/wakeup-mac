@@ -2,16 +2,20 @@ import Foundation
 import AppKit
 import Combine
 import ServiceManagement
+import IOKit.pwr_mgt
 
 final class WakeManager: ObservableObject {
     @Published var isActive = false
     @Published var remainingSeconds: Int? = nil // nil = indefinitely
     @Published var remainingTimeString: String? = nil
-    @Published var allowDisplaySleep: Bool {
+    /// When true (default), the display is kept fully on for the whole timer.
+    /// When false, the system stays awake but the screen may turn off on its normal idle timeout.
+    @Published var keepScreenOn: Bool {
         didSet {
-            UserDefaults.standard.set(allowDisplaySleep, forKey: "allowDisplaySleep")
+            UserDefaults.standard.set(keepScreenOn, forKey: "keepScreenOn")
             if isActive {
-                restartCurrent()
+                // Swap the assertion type without disturbing the running countdown.
+                renewAssertion()
             }
         }
     }
@@ -23,13 +27,16 @@ final class WakeManager: ObservableObject {
         }
     }
 
-    private var caffeinateTask: Process?
+    private var assertionID: IOPMAssertionID = IOPMAssertionID(0)
+    private var hasAssertion = false
     private var countdownTimer: Timer?
     private var currentDurationMinutes: Int? // for restart on setting change
     private var endDate: Date? // absolute wall-clock time the timer expires
 
     init() {
-        self.allowDisplaySleep = UserDefaults.standard.bool(forKey: "allowDisplaySleep")
+        // Default to keeping the screen on unless the user has explicitly opted out.
+        UserDefaults.standard.register(defaults: ["keepScreenOn": true])
+        self.keepScreenOn = UserDefaults.standard.bool(forKey: "keepScreenOn")
         self.startAtLogin = SMAppService.mainApp.status == .enabled
 
         // Refresh immediately when the Mac wakes from sleep, so the remaining time
@@ -45,6 +52,56 @@ final class WakeManager: ObservableObject {
     @objc private func handleWake() {
         refreshRemaining()
     }
+
+    // MARK: - Power assertions
+
+    /// Create a power-management assertion that keeps the Mac awake. This runs entirely
+    /// in-process (no external caffeinate subprocess), so it works under the App Sandbox
+    /// and leaves nothing behind if the app crashes.
+    @discardableResult
+    private func createAssertion() -> Bool {
+        releaseAssertion()
+
+        // Keep screen on → prevent display idle sleep (also implies system stays awake).
+        // Otherwise → keep the system awake but let the display sleep on its idle timeout.
+        let type = keepScreenOn
+            ? kIOPMAssertionTypePreventUserIdleDisplaySleep
+            : kIOPMAssertionTypePreventUserIdleSystemSleep
+
+        var id = IOPMAssertionID(0)
+        let result = IOPMAssertionCreateWithName(
+            type as CFString,
+            IOPMAssertionLevel(kIOPMAssertionLevelOn),
+            "Wakeup keeping the Mac awake" as CFString,
+            &id
+        )
+
+        if result == kIOReturnSuccess {
+            assertionID = id
+            hasAssertion = true
+            return true
+        } else {
+            print("Wakeup: Failed to create power assertion — IOReturn \(result)")
+            hasAssertion = false
+            return false
+        }
+    }
+
+    private func releaseAssertion() {
+        if hasAssertion {
+            IOPMAssertionRelease(assertionID)
+            hasAssertion = false
+            assertionID = IOPMAssertionID(0)
+        }
+    }
+
+    /// Swap the assertion type (display-sleep setting changed) while keeping the countdown.
+    private func renewAssertion() {
+        guard isActive else { return }
+        createAssertion()
+    }
+
+    // MARK: - Login item
 
     private func updateLoginItem(enabled: Bool) {
         do {
@@ -66,128 +123,43 @@ final class WakeManager: ObservableObject {
         }
     }
 
+    // MARK: - Activation
+
     func activate(minutes: Int?) {
         deactivate()
 
-        var arguments = [String]()
-        if allowDisplaySleep {
-            arguments.append("-i") // prevent idle system sleep (display allowed to sleep)
-        } else {
-            arguments.append("-d") // prevent display from sleeping
+        guard createAssertion() else {
+            isActive = false
+            return
         }
 
-        let durationSeconds: Int?
+        isActive = true
+
         if let minutes {
             let secs = minutes * 60
-            durationSeconds = secs
-            arguments += ["-t", "\(secs)"]
             currentDurationMinutes = minutes
+            endDate = Date().addingTimeInterval(TimeInterval(secs))
+            remainingSeconds = secs
+            startCountdown()
         } else {
-            durationSeconds = nil
             currentDurationMinutes = nil
+            endDate = nil
+            remainingSeconds = nil
         }
-
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/caffeinate")
-        task.arguments = arguments
-        task.terminationHandler = { [weak self] terminated in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                // Ignore stale handlers: only react if this is still the current process.
-                // When we reset the timer we intentionally terminate the old process, and its
-                // handler must not tear down the newly-started one.
-                guard self.caffeinateTask === terminated else { return }
-                self.deactivate()
-            }
-        }
-
-        do {
-            try task.run()
-            caffeinateTask = task
-            isActive = true
-
-            if let secs = durationSeconds {
-                endDate = Date().addingTimeInterval(TimeInterval(secs))
-                remainingSeconds = secs
-                startCountdown()
-            } else {
-                endDate = nil
-                remainingSeconds = nil
-            }
-            updateTimeString()
-        } catch {
-            print("Wakeup: Failed to launch caffeinate — \(error)")
-            isActive = false
-        }
+        updateTimeString()
     }
 
     func deactivate() {
         countdownTimer?.invalidate()
         countdownTimer = nil
 
-        if let task = caffeinateTask, task.isRunning {
-            task.terminate()
-        }
-        caffeinateTask = nil
+        releaseAssertion()
 
         isActive = false
         remainingSeconds = nil
         currentDurationMinutes = nil
         endDate = nil
         updateTimeString()
-    }
-
-    /// Re-launch caffeinate with the current display-sleep flag while preserving the
-    /// existing countdown. Used when the display-sleep setting changes mid-timer so the
-    /// timer is NOT reset — only the caffeinate mode (-d/-i) swaps for the time that's left.
-    private func restartCurrent() {
-        guard isActive else { return }
-
-        // Preserve where we are: the absolute end date (or indefinite).
-        let savedEndDate = endDate
-        let savedDurationMinutes = currentDurationMinutes
-
-        // Tear down only the caffeinate process + timer, without clearing published state.
-        countdownTimer?.invalidate()
-        countdownTimer = nil
-        if let task = caffeinateTask, task.isRunning {
-            task.terminate()
-        }
-        caffeinateTask = nil
-
-        var arguments = [String]()
-        arguments.append(allowDisplaySleep ? "-i" : "-d")
-
-        if let savedEndDate {
-            let remaining = max(1, Int(savedEndDate.timeIntervalSinceNow.rounded()))
-            arguments += ["-t", "\(remaining)"]
-        }
-
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/caffeinate")
-        task.arguments = arguments
-        task.terminationHandler = { [weak self] terminated in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                guard self.caffeinateTask === terminated else { return }
-                self.deactivate()
-            }
-        }
-
-        do {
-            try task.run()
-            caffeinateTask = task
-            isActive = true
-            endDate = savedEndDate
-            currentDurationMinutes = savedDurationMinutes
-            if savedEndDate != nil {
-                startCountdown()
-            }
-            refreshRemaining()
-        } catch {
-            print("Wakeup: Failed to relaunch caffeinate — \(error)")
-            deactivate()
-        }
     }
 
     private func startCountdown() {
