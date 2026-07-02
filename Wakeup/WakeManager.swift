@@ -137,9 +137,57 @@ final class WakeManager: ObservableObject {
         updateTimeString()
     }
 
+    /// Re-launch caffeinate with the current display-sleep flag while preserving the
+    /// existing countdown. Used when the display-sleep setting changes mid-timer so the
+    /// timer is NOT reset — only the caffeinate mode (-d/-i) swaps for the time that's left.
     private func restartCurrent() {
-        let mins = currentDurationMinutes
-        activate(minutes: mins)
+        guard isActive else { return }
+
+        // Preserve where we are: the absolute end date (or indefinite).
+        let savedEndDate = endDate
+        let savedDurationMinutes = currentDurationMinutes
+
+        // Tear down only the caffeinate process + timer, without clearing published state.
+        countdownTimer?.invalidate()
+        countdownTimer = nil
+        if let task = caffeinateTask, task.isRunning {
+            task.terminate()
+        }
+        caffeinateTask = nil
+
+        var arguments = [String]()
+        arguments.append(allowDisplaySleep ? "-i" : "-d")
+
+        if let savedEndDate {
+            let remaining = max(1, Int(savedEndDate.timeIntervalSinceNow.rounded()))
+            arguments += ["-t", "\(remaining)"]
+        }
+
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/caffeinate")
+        task.arguments = arguments
+        task.terminationHandler = { [weak self] terminated in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                guard self.caffeinateTask === terminated else { return }
+                self.deactivate()
+            }
+        }
+
+        do {
+            try task.run()
+            caffeinateTask = task
+            isActive = true
+            endDate = savedEndDate
+            currentDurationMinutes = savedDurationMinutes
+            if savedEndDate != nil {
+                startCountdown()
+            }
+            refreshRemaining()
+        } catch {
+            print("Wakeup: Failed to relaunch caffeinate — \(error)")
+            deactivate()
+        }
     }
 
     private func startCountdown() {
