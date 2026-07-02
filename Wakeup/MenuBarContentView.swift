@@ -3,6 +3,7 @@ import AppKit
 
 struct MenuBarContentView: View {
     @EnvironmentObject var manager: WakeManager
+    @EnvironmentObject var updateChecker: UpdateChecker
 
     private let durationOptions: [(title: String, minutes: Int?)] = [
         ("Indefinitely", nil),
@@ -53,6 +54,13 @@ struct MenuBarContentView: View {
              : "Mac stays awake, but the screen may turn off")
             .font(.caption)
             .foregroundStyle(.secondary)
+
+        Divider()
+
+        Button("Check for Updates…") {
+            updateChecker.checkForUpdates()
+        }
+        Toggle("Automatically check for updates", isOn: $updateChecker.automaticallyChecksForUpdates)
 
         Divider()
 

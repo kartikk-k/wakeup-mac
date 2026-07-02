@@ -1,0 +1,19 @@
+# Build output
+build/
+DerivedData/
+*.xcarchive
+*.dmg
+
+# Xcode user-specific state
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+
+# macOS
+.DS_Store
+
+# Signing / secrets — never commit these
+*.p12
+*.cer
+*.provisionprofile
+ExportOptions.plist

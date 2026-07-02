@@ -4,12 +4,15 @@ import AppKit
 @main
 struct WakeupApp: App {
     @StateObject private var manager = WakeManager()
+    @StateObject private var updateChecker = UpdateChecker()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
         MenuBarExtra {
             MenuBarContentView()
                 .environmentObject(manager)
+                .environmentObject(updateChecker)
+                .task { updateChecker.checkOnLaunchIfNeeded() }
         } label: {
             // Pass values directly instead of relying on @EnvironmentObject for the menubar label.
             // @EnvironmentObject in MenuBarExtra labels can be nil on initial render in some cases.

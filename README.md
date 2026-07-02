@@ -7,63 +7,71 @@ A simple, free, and open-source macOS menu bar app that prevents your Mac from s
 ## Features
 
 - Keep your Mac awake for a chosen duration or indefinitely
-- Live countdown in the menu bar and in the popover
+- Live countdown in the menu bar (accurate across sleep/wake)
 - Two modes:
-  - Prevent display sleep (screen stays on)
-  - Allow display sleep (system stays awake)
-- Quick 30-minute start + presets + custom duration
-- Native SwiftUI + Apple design guidelines
-- No Dock icon (pure menu bar app)
-- Uses the built-in `caffeinate` tool under the hood
+  - **Keep screen on** — the display stays on for the whole timer
+  - Screen off — the Mac stays awake but the display may turn off
+- Duration presets, plus quick reset by re-picking any option
+- Start at login
+- Built-in **Check for Updates** via GitHub Releases
+- Native SwiftUI menu-bar app, no Dock icon
+
+## Install
+
+1. Download the latest `Wakeup-x.y.z.dmg` from the
+   [Releases page](https://github.com/kartikk-k/wakeup-mac/releases/latest).
+2. Open the DMG and drag **Wakeup** into **Applications**.
+3. Launch Wakeup — a coffee-cup icon appears in the menu bar.
+
+> **First launch (unsigned builds):** if macOS says the app "can't be opened because
+> Apple cannot check it," right-click the app → **Open** → **Open**. You only need to do
+> this once. (Notarized releases don't show this warning.)
 
 ## Requirements
 
-- macOS 13 Ventura or later (MenuBarExtra + modern SwiftUI)
-- Built with Xcode 16+
-
-## Build & Run
-
-1. Open `Wakeup.xcodeproj` in Xcode
-2. Select the `Wakeup` scheme
-3. Build & Run (⌘R)
-4. The coffee mug icon ☕ will appear in your menu bar (right side)
+- macOS 13 Ventura or later
+- Universal binary (Apple Silicon + Intel)
 
 ## Usage
 
-- Click the coffee mug icon to open the panel
-- Tap **"Keep awake for 30 minutes"** for quick use, or choose any other duration
-- Or enter a custom number of minutes
-- Toggle **"Allow display to sleep"** if you want the screen to turn off while keeping the system awake
-- Click **Turn Off** anytime to restore normal sleep behavior
-- The remaining time is shown directly in the menu bar while active
+- Click the menu-bar icon to open the menu.
+- Pick a duration (or **Indefinitely**) to keep the Mac awake. Re-picking any option
+  resets the timer to that duration.
+- **Deactivate** turns it off and restores normal sleep behavior.
+- **Keep screen on** — leave on to keep the display lit; turn off to let the screen
+  sleep while the Mac stays awake.
+- **Start at login** launches Wakeup automatically.
+- **Check for Updates…** compares your version against the latest GitHub Release.
 
 ## How it works
 
-Wakeup launches the system `caffeinate` command with the appropriate flags:
-- `-d` — prevent the display from sleeping
-- `-i` — prevent system idle sleep (allows display sleep)
-- `-t <seconds>` — for timed sessions
+Wakeup creates an in-process IOKit power-management assertion — the same mechanism the
+system `caffeinate` tool uses — so it works without launching an external process:
 
-When the time expires or you turn it off, the assertion is released and your Mac behaves normally.
+- **Keep screen on** → `PreventUserIdleDisplaySleep`
+- Screen off → `PreventUserIdleSystemSleep`
 
-## Design
+The countdown is derived from an absolute end time, so it stays accurate even if the
+display or system sleeps and later wakes. When the timer expires or you deactivate, the
+assertion is released and the Mac behaves normally.
 
-- Follows official Apple Human Interface Guidelines
-- Uses SF Symbols (coffee mug "mug.fill"), native controls, proper spacing and typography
-- Clean minimal popover (no unnecessary chrome)
+## Building from source
 
-## Custom Menu Bar Icon
+1. Open `Wakeup.xcodeproj` in Xcode (16+).
+2. Select the `Wakeup` scheme and Build & Run (⌘R).
 
-The app uses the built-in SF Symbol `mug` / `mug.fill` as the coffee icon.
+To produce a distributable DMG, see [RELEASING.md](RELEASING.md):
 
-To use a custom coffee icon (recommended for a polished app):
+```sh
+./scripts/build_dmg.sh          # ad-hoc DMG (no Apple account)
+```
 
-1. In Xcode, open `Assets.xcassets`
-2. Replace the `MenuBarIcon` imageset with a vector PDF (black on transparent)
-3. In the asset inspector, set **Render As** → **Template Image**
-4. Rebuild
+## Updates
 
-A good source is to export the "mug" symbol from the official SF Symbols app and edit it, or design a simple coffee mug in 16–22 pt height.
+The app checks GitHub Releases at most once per day (toggleable) and offers to open the
+release page when a newer version is available. Releases are cut by pushing a version tag
+(`vX.Y.Z`); a GitHub Actions workflow builds, signs, notarizes, and attaches the DMG. See
+[RELEASING.md](RELEASING.md).
 
 ## License
 
@@ -71,4 +79,4 @@ MIT — free and open source.
 
 ## Credits
 
-Inspired by Lungo (by Sindre Sorhus / Setapp). This is an independent clone created for learning and personal use.
+Inspired by Lungo (by Sindre Sorhus / Setapp). An independent, open-source app.
