@@ -41,35 +41,35 @@ Omit the env vars to produce an ad-hoc DMG (no Apple account required):
 ./scripts/build_dmg.sh
 ```
 
-## Cutting a release
+## Cutting a release (manual, from this machine)
 
 1. Bump the version in Xcode (target **Wakeup** → General → **Version**), which sets
    `MARKETING_VERSION`. Optionally bump the build number (`CURRENT_PROJECT_VERSION`).
-2. Commit.
-3. Tag and push:
+2. Build the DMG:
    ```sh
-   git tag v1.1.0
-   git push origin v1.1.0
+   # signed + notarized (see setup above)
+   SIGN_IDENTITY="Developer ID Application: Your Name (ABCDE12345)" \
+   TEAM_ID=ABCDE12345 NOTARY_PROFILE=wakeup-notary ./scripts/build_dmg.sh
+
+   # or ad-hoc (no Apple account)
+   ./scripts/build_dmg.sh
    ```
-4. GitHub Actions (`.github/workflows/release.yml`) builds the DMG and attaches it to
-   the release. The in-app updater compares the release tag against
-   `CFBundleShortVersionString`, so **the tag must match the app version** (a leading
-   `v` is fine — `v1.1.0` vs app version `1.1.0`).
+3. Commit and push any version bump:
+   ```sh
+   git commit -am "Release vX.Y.Z"
+   git push origin main
+   ```
+4. Tag and publish the release with the DMG attached:
+   ```sh
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   gh release create vX.Y.Z build/Wakeup-X.Y.Z.dmg \
+     --repo kartikk-k/wakeup-mac --title "Wakeup X.Y.Z" --notes "..."
+   ```
 
-### CI secrets (Settings → Secrets and variables → Actions)
-
-For signed + notarized CI builds, add:
-
-| Secret | Value |
-| --- | --- |
-| `MACOS_CERTIFICATE` | base64 of your exported `Developer ID Application` `.p12` (`base64 -i cert.p12 \| pbcopy`) |
-| `MACOS_CERTIFICATE_PASSWORD` | password for the `.p12` |
-| `MACOS_SIGN_IDENTITY` | `Developer ID Application: Your Name (ABCDE12345)` |
-| `APPLE_TEAM_ID` | your Team ID, e.g. `ABCDE12345` |
-| `NOTARY_APPLE_ID` | your Apple ID email |
-| `NOTARY_PASSWORD` | the app-specific password |
-
-If these are absent, CI still builds an ad-hoc DMG.
+The in-app updater compares the release tag against `CFBundleShortVersionString`, so
+**the tag must match the app version** (a leading `v` is fine — `vX.Y.Z` vs app version
+`X.Y.Z`).
 
 ## How the in-app updater works
 

@@ -69,8 +69,8 @@ To produce a distributable DMG, see [RELEASING.md](RELEASING.md):
 ## Updates
 
 The app checks GitHub Releases at most once per day (toggleable) and offers to open the
-release page when a newer version is available. Releases are cut by pushing a version tag
-(`vX.Y.Z`); a GitHub Actions workflow builds, signs, notarizes, and attaches the DMG. See
+release page when a newer version is available. Releases are built locally with
+`scripts/build_dmg.sh` and published with the DMG attached to a matching version tag. See
 [RELEASING.md](RELEASING.md).
 
 ## License
