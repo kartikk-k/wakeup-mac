@@ -1,6 +1,6 @@
 # Wakeup
 
-A simple, free, and open-source macOS menu bar app that prevents your Mac from sleeping — inspired by Lungo.
+A simple, free, and open-source macOS menu bar app that prevents your Mac from sleeping
 
 ![Wakeup preview](preview.png)
 
